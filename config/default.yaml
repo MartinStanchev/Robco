@@ -1,0 +1,34 @@
+# =============================================================================
+# Robco Voice Robot — Default Configuration
+# =============================================================================
+# Environment variables (.env) override these values.
+# =============================================================================
+
+gemini:
+  # api_key: set via GEMINI_API_KEY env var (required)
+  model: gemini-2.5-flash-preview-native-audio-dialog
+
+audio:
+  input_sample_rate: 16000   # Mic capture: 16kHz
+  output_sample_rate: 24000  # Speaker playback: 24kHz
+  input_channels: 1          # Mono
+  chunk_size: 1024           # Bytes per audio chunk
+
+wake_word:
+  phrase: "hey robot"
+  sensitivity: 0.5           # 0.0 (least sensitive) to 1.0 (most sensitive)
+
+personality:
+  default: friendly
+  dir: config/personalities
+
+conversation:
+  timeout: 30                # Seconds of silence before ending session
+  max_duration: 600          # Max session length (10 minutes)
+
+n8n:
+  server_url: ""             # Empty = disabled
+  api_key: ""
+
+logging:
+  level: INFO                # DEBUG, INFO, WARNING, ERROR

@@ -1,0 +1,21 @@
+# =============================================================================
+# Robco Voice Robot — Python Dependencies
+# =============================================================================
+
+# --- Core ---
+google-genai>=1.0.0          # Gemini Python SDK (Live API)
+pyyaml>=6.0                  # YAML config loading
+python-dotenv>=1.0.0         # .env file loading
+
+# --- Wake Word ---
+openwakeword>=0.6.0          # Wake word detection
+
+# --- MCP ---
+fastmcp>=2.0.0               # MCP tool server
+
+# --- Audio ---
+numpy>=1.24.0                # Audio buffer manipulation
+
+# --- Testing ---
+pytest>=8.0.0                # Test framework
+pytest-asyncio>=0.23.0       # Async test support

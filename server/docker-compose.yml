@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: n8n
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-n8n_dev_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U n8n
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      # Database
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-n8n_dev_password}
+
+      # n8n general settings
+      N8N_HOST: ${N8N_HOST:-0.0.0.0}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-America/New_York}
+
+      # Allow access to environment variables from within n8n expressions
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "false"
+
+      # API keys passed through to n8n for use in HTTP Request nodes
+      # These are optional — n8n will start without them, but workflows
+      # that use $env.GEMINI_API_KEY or $env.GOOGLE_TTS_API_KEY will fail
+      # until the keys are set and the container is restarted.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_TTS_API_KEY: ${GOOGLE_TTS_API_KEY:-}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/home/node/workflows
+      - ./personality-cache:/data/personality-cache
+    healthcheck:
+      test: wget -qO- http://localhost:5678/healthz || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  n8n_data:

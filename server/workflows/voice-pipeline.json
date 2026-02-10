@@ -1,0 +1,190 @@
+{
+  "name": "Voice Interaction Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "process-voice",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook - Process Voice",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "process-voice"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract audio and personality from the webhook body\nconst body = $input.first().json.body;\nconst audio = body.audio;           // base64-encoded WAV\nconst personality = body.personality || 'friendly';\n\n// Personality configs — maps personality name to LLM + TTS settings\nconst personalities = {\n  friendly: {\n    system_prompt: \"You are a friendly, helpful robot assistant named Robco. You speak in short, conversational sentences. Keep responses under 2-3 sentences. Be warm and enthusiastic.\",\n    temperature: 0.8,\n    max_tokens: 150,\n    voice_name: \"en-US-Neural2-C\",\n    language_code: \"en-US\",\n    speaking_rate: 1.0,\n    pitch: 0.0\n  },\n  professional: {\n    system_prompt: \"You are a professional, efficient robot assistant named Robco. You speak clearly and concisely. Keep responses factual and under 2-3 sentences.\",\n    temperature: 0.6,\n    max_tokens: 150,\n    voice_name: \"en-US-Neural2-D\",\n    language_code: \"en-US\",\n    speaking_rate: 0.95,\n    pitch: -2.0\n  }\n};\n\nconst config = personalities[personality] || personalities.friendly;\n\nreturn [{\n  json: {\n    audio,\n    personality,\n    config\n  }\n}];"
+      },
+      "id": "prepare-request",
+      "name": "Prepare Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ inline_data: { mime_type: 'audio/wav', data: $json.audio } }] }], system_instruction: { parts: [{ text: $json.config.system_prompt }] }, generationConfig: { temperature: $json.config.temperature, maxOutputTokens: $json.config.max_tokens } }) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "gemini-flash",
+      "name": "Gemini Flash",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the text response from Gemini\nconst geminiResponse = $input.first().json;\n\nlet responseText = '';\ntry {\n  // Gemini returns candidates[0].content.parts[0].text\n  responseText = geminiResponse.body?.candidates?.[0]?.content?.parts?.[0]?.text\n    || geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text\n    || '';\n} catch (e) {\n  responseText = 'I had trouble understanding that. Could you try again?';\n}\n\nif (!responseText) {\n  responseText = 'I had trouble understanding that. Could you try again?';\n}\n\n// Get the personality config from previous node\nconst config = $('Prepare Request').first().json.config;\n\nreturn [{\n  json: {\n    responseText,\n    config\n  }\n}];"
+      },
+      "id": "extract-text",
+      "name": "Extract Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://texttospeech.googleapis.com/v1/text:synthesize?key={{ $env.GOOGLE_TTS_API_KEY }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ input: { text: $json.responseText }, voice: { languageCode: $json.config.language_code, name: $json.config.voice_name }, audioConfig: { audioEncoding: 'MP3', speakingRate: $json.config.speaking_rate, pitch: $json.config.pitch } }) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "google-tts",
+      "name": "Google TTS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the audio content from Google TTS response\nconst ttsResponse = $input.first().json;\n\nlet audioBase64 = '';\ntry {\n  audioBase64 = ttsResponse.body?.audioContent\n    || ttsResponse.audioContent\n    || '';\n} catch (e) {\n  // Return empty audio on error\n}\n\nconst responseText = $('Extract Gemini Response').first().json.responseText;\nconst personality = $('Prepare Request').first().json.personality;\n\nreturn [{\n  json: {\n    audio_base64: audioBase64,\n    text: responseText,\n    personality,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "format-response",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ audio_base64: $json.audio_base64, text: $json.text, personality: $json.personality, timestamp: $json.timestamp }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-to-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1540, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Process Voice": {
+      "main": [
+        [
+          {
+            "node": "Prepare Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Request": {
+      "main": [
+        [
+          {
+            "node": "Gemini Flash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Flash": {
+      "main": [
+        [
+          {
+            "node": "Extract Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Google TTS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google TTS": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "voice-pipeline"
+    }
+  ]
+}
